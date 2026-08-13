@@ -41,8 +41,7 @@ jobs:
 
           echo "Esperando a que MySQL acepte conexiones autenticadas..."
 
-          for i in $(seq 1 60); do
-            for i in $(seq 1 90); do
+             for i in $(seq 1 90); do
               if docker exec ps-db \
                 mysql -uroot -proot -e "SELECT 1;" >/dev/null 2>&1; then
                 echo "MySQL listo."
