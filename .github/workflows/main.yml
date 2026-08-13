@@ -1,0 +1,165 @@
+name: Gestion de muestras - CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gestion-de-muestras/fabricssamples/**'
+      - '.github/workflows/main.yml'
+
+  pull_request:
+    branches: [main]
+    paths:
+      - 'gestion-de-muestras/fabricssamples/**'
+      - '.github/workflows/main.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validar-modulo:
+    name: Validar modulo
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: gestion-de-muestras/fabricssamples
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar PHP 8.1
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+          tools: composer:v2
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Comprobar estructura esencial
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f fabricssamples.php
+          test -f config.xml
+          test -f composer.json
+          test -f MANIFEST.sha256
+          test -f CHANGELOG.md
+          test -f README.md
+          test -f logo.png
+          test -f .gitignore
+
+          test -d config
+          test -d controllers
+          test -d mails
+          test -d sql
+          test -d src
+          test -d translations
+          test -d upgrade
+          test -d views
+
+      - name: Comprobar composer.json
+        run: composer validate --strict --no-check-publish
+
+      - name: Comprobar coherencia de version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version_php=$(sed -n "s/.*public const VERSION = '\([^']*\)'.*/\1/p" fabricssamples.php | head -n 1)
+          version_xml=$(sed -n 's#.*<version><!\[CDATA\[\([^]]*\)\]\]></version>.*#\1#p' config.xml | head -n 1)
+
+          echo "Version del modulo: $version_php"
+          echo "Version config.xml: $version_xml"
+
+          test -n "$version_php"
+          test "$version_php" = "$version_xml"
+
+          test -f "upgrade/upgrade-${version_php}.php"
+
+          grep -F "$version_php" README.md >/dev/null
+          grep -F "## $version_php" CHANGELOG.md >/dev/null
+
+      - name: Comprobar sintaxis PHP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find . -type f -name '*.php' -print0 \
+            | sort -z \
+            | xargs -0 -n1 php -l
+
+      - name: Comprobar JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find views -type f -name '*.js' -print0 \
+            | sort -z \
+            | xargs -0 -n1 node --check
+
+      - name: Comprobar migraciones
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          count=$(find upgrade -maxdepth 1 -type f -name 'upgrade-*.php' | wc -l | tr -d ' ')
+          echo "Migraciones encontradas: $count"
+
+          for file in upgrade/upgrade-*.php; do
+            version=$(basename "$file" .php | sed 's/^upgrade-//')
+            function_name="upgrade_module_${version//./_}"
+
+            grep -F "function ${function_name}" "$file" >/dev/null
+          done
+
+      - name: Verificar integridad del manifiesto
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha256sum -c MANIFEST.sha256
+
+  compatibilidad-php:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - '8.1'
+          - '8.2'
+          - '8.3'
+          - '8.4'
+
+    defaults:
+      run:
+        working-directory: gestion-de-muestras/fabricssamples
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Validar sintaxis
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find . -type f -name '*.php' -print0 \
+            | sort -z \
+            | xargs -0 -n1 php -l
