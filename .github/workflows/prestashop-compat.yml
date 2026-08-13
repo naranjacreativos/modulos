@@ -1,0 +1,200 @@
+name: Gestion de muestras - Compatibilidad PrestaShop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibilidad:
+    name: PrestaShop 8.2 y 9.1
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Probar modulo en PrestaShop 8.2 y 9.1
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MODULE_DIR="$GITHUB_WORKSPACE/gestion-de-muestras/fabricssamples"
+
+          test -f "$MODULE_DIR/fabricssamples.php"
+
+          echo "========================================"
+          echo "Preparando base de datos"
+          echo "========================================"
+
+          docker network create prestashop-test
+
+          docker run -d \
+            --name ps-db \
+            --network prestashop-test \
+            -e MYSQL_ROOT_PASSWORD=root \
+            -e MYSQL_ROOT_HOST=% \
+            mysql:8.0 \
+            --default-authentication-plugin=mysql_native_password
+
+          echo "Esperando a MySQL..."
+
+          for i in $(seq 1 60); do
+            if docker exec ps-db mysqladmin ping -uroot -proot --silent; then
+              break
+            fi
+
+            if [ "$i" -eq 60 ]; then
+              echo "ERROR: MySQL no ha arrancado."
+              docker logs ps-db
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          docker exec ps-db mysql -uroot -proot -e \
+            "CREATE DATABASE ps82 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+             CREATE DATABASE ps91 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+          probar_prestashop () {
+            IMAGE="$1"
+            NAME="$2"
+            DATABASE="$3"
+            PORT="$4"
+            LABEL="$5"
+
+            echo ""
+            echo "========================================"
+            echo "PROBANDO $LABEL"
+            echo "Imagen: $IMAGE"
+            echo "========================================"
+
+            docker run -d \
+              --name "$NAME" \
+              --network prestashop-test \
+              -p "$PORT:80" \
+              -e PS_INSTALL_AUTO=1 \
+              -e PS_DEV_MODE=1 \
+              -e PS_DOMAIN=localhost:"$PORT" \
+              -e DB_SERVER=ps-db \
+              -e DB_NAME="$DATABASE" \
+              -e DB_USER=root \
+              -e DB_PASSWD=root \
+              -e PS_LANGUAGE=es \
+              -e PS_COUNTRY=ES \
+              -e ADMIN_MAIL=admin@example.com \
+              -e ADMIN_PASSWD=Test123456! \
+              "$IMAGE"
+
+            echo "Esperando instalación de $LABEL..."
+
+            INSTALADO=0
+
+            for i in $(seq 1 120); do
+              if docker exec "$NAME" \
+                sh -c "cd /var/www/html && php bin/console prestashop:module list >/dev/null 2>&1"; then
+                INSTALADO=1
+                break
+              fi
+
+              if [ "$i" -eq 120 ]; then
+                echo "ERROR: $LABEL no terminó de instalarse."
+                docker logs "$NAME"
+                exit 1
+              fi
+
+              sleep 3
+            done
+
+            if [ "$INSTALADO" -ne 1 ]; then
+              exit 1
+            fi
+
+            echo "$LABEL instalado correctamente."
+
+            echo "Copiando Gestión de muestras..."
+            docker cp "$MODULE_DIR" "$NAME:/var/www/html/modules/fabricssamples"
+
+            docker exec "$NAME" \
+              chown -R www-data:www-data /var/www/html/modules/fabricssamples
+
+            echo "Comprobando versión real de PrestaShop..."
+            docker exec "$NAME" sh -c \
+              "cd /var/www/html && php -r \"require 'config/config.inc.php'; echo _PS_VERSION_, PHP_EOL;\""
+
+            echo "Instalando módulo..."
+            docker exec "$NAME" sh -c \
+              "cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction"
+
+            echo "Desactivando módulo..."
+            docker exec "$NAME" sh -c \
+              "cd /var/www/html && php bin/console prestashop:module disable fabricssamples --no-interaction"
+
+            echo "Activando módulo..."
+            docker exec "$NAME" sh -c \
+              "cd /var/www/html && php bin/console prestashop:module enable fabricssamples --no-interaction"
+
+            echo "Reinicializando módulo..."
+            docker exec "$NAME" sh -c \
+              "cd /var/www/html && php bin/console prestashop:module reset fabricssamples --no-interaction"
+
+            echo "Comprobando Front Office..."
+            curl --retry 10 \
+              --retry-delay 2 \
+              --retry-connrefused \
+              --fail \
+              --silent \
+              --show-error \
+              "http://127.0.0.1:$PORT/" \
+              >/dev/null
+
+            echo "Desinstalando módulo..."
+            docker exec "$NAME" sh -c \
+              "cd /var/www/html && php bin/console prestashop:module uninstall fabricssamples --no-interaction"
+
+            echo "Reinstalando módulo..."
+            docker exec "$NAME" sh -c \
+              "cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction"
+
+            echo ""
+            echo "OK: $LABEL ha superado:"
+            echo "- instalación de PrestaShop"
+            echo "- instalación del módulo"
+            echo "- desactivación"
+            echo "- reactivación"
+            echo "- reinicialización"
+            echo "- respuesta del Front Office"
+            echo "- desinstalación"
+            echo "- reinstalación"
+
+            docker rm -f "$NAME"
+          }
+
+          probar_prestashop \
+            "prestashop/prestashop:8.2-apache" \
+            "ps82" \
+            "ps82" \
+            "8082" \
+            "PrestaShop 8.2"
+
+          probar_prestashop \
+            "prestashop/prestashop:9.1.x-apache" \
+            "ps91" \
+            "ps91" \
+            "8091" \
+            "PrestaShop 9.1"
+
+          echo ""
+          echo "========================================"
+          echo "RESULTADO FINAL"
+          echo "========================================"
+          echo "OK - PrestaShop 8.2"
+          echo "OK - PrestaShop 9.1"
+          echo "Gestión de muestras supera la prueba"
+          echo "básica de compatibilidad real."
+
+          docker rm -f ps-db
+          docker network rm prestashop-test
