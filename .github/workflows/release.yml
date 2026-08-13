@@ -1,0 +1,116 @@
+name: Gestion de muestras - Paquete y Release
+
+on:
+  workflow_dispatch:
+
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  crear-paquete:
+    name: Crear ZIP instalable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v6
+
+      - name: Leer version del modulo
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd gestion-de-muestras/fabricssamples
+
+          VERSION=$(sed -n "s/.*public const VERSION = '\([^']*\)'.*/\1/p" fabricssamples.php | head -n 1)
+
+          if [ -z "$VERSION" ]; then
+            echo "No se ha podido detectar la version del modulo."
+            exit 1
+          fi
+
+          echo "Version detectada: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Comprobar etiqueta de version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${GITHUB_REF_NAME}"
+
+          echo "Version del modulo: $VERSION"
+          echo "Etiqueta GitHub: $TAG"
+
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "ERROR: La etiqueta $TAG no coincide con la version v$VERSION."
+            exit 1
+          fi
+
+      - name: Verificar integridad antes de empaquetar
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd gestion-de-muestras/fabricssamples
+          sha256sum -c MANIFEST.sha256
+
+      - name: Crear estructura del paquete
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+
+          mkdir -p build/fabricssamples
+
+          rsync -a \
+            gestion-de-muestras/fabricssamples/ \
+            build/fabricssamples/
+
+          rm -f build/fabricssamples/.gitkeep
+
+          cd build
+          zip -qr "Gestion-de-muestras-v${VERSION}.zip" fabricssamples
+
+          sha256sum "Gestion-de-muestras-v${VERSION}.zip" \
+            > "Gestion-de-muestras-v${VERSION}.zip.sha256"
+
+          echo "Paquete generado:"
+          ls -lh "Gestion-de-muestras-v${VERSION}.zip"
+          cat "Gestion-de-muestras-v${VERSION}.zip.sha256"
+
+      - name: Guardar paquete en GitHub Actions
+        uses: actions/upload-artifact@v7
+        with:
+          name: Gestion-de-muestras-v${{ steps.version.outputs.version }}
+          path: |
+            build/Gestion-de-muestras-v${{ steps.version.outputs.version }}.zip
+            build/Gestion-de-muestras-v${{ steps.version.outputs.version }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Crear Release automaticamente
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+
+          gh release create "$TAG" \
+            "build/Gestion-de-muestras-v${VERSION}.zip" \
+            "build/Gestion-de-muestras-v${VERSION}.zip.sha256" \
+            --verify-tag \
+            --title "Gestión de muestras ${VERSION}" \
+            --generate-notes
