@@ -1,0 +1,12 @@
+/vendor/
+/tests/integration/e2e/node_modules/
+/tests/integration/e2e/artifacts/
+/tests/integration/e2e/playwright-report/
+/tests/integration/e2e/test-results/
+/.phpunit.cache/
+/.phpunit.result.cache
+/.php-cs-fixer.cache
+/*.zip
+/*.sha256
+.DS_Store
+Thumbs.db
