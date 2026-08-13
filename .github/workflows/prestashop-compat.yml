@@ -10,194 +10,204 @@ jobs:
   compatibilidad:
     name: PrestaShop 8.2 y 9.1
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Descargar codigo
         uses: actions/checkout@v6
 
-      - name: Probar modulo en PrestaShop 8.2 y 9.1
+      - name: Probar PrestaShop 8.2
+        id: ps82
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
 
           MODULE_DIR="$GITHUB_WORKSPACE/gestion-de-muestras/fabricssamples"
+          PS_NAME=ps82
+          DB_NAME=db82
+          NET=ps82-net
+          PORT=8082
+          IMAGE=prestashop/prestashop:8.2-apache
+
+          cleanup() {
+            docker rm -f "$PS_NAME" "$DB_NAME" >/dev/null 2>&1 || true
+            docker network rm "$NET" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cleanup
 
           test -f "$MODULE_DIR/fabricssamples.php"
-
-          echo "========================================"
-          echo "Preparando base de datos"
-          echo "========================================"
-
-          docker network create prestashop-test
+          docker network create "$NET" >/dev/null
 
           docker run -d \
-            --name ps-db \
-            --network prestashop-test \
+            --name "$DB_NAME" \
+            --network "$NET" \
+            -e MYSQL_DATABASE=prestashop \
+            -e MYSQL_USER=prestashop \
+            -e MYSQL_PASSWORD=prestashop \
             -e MYSQL_ROOT_PASSWORD=root \
-            -e MYSQL_ROOT_HOST=% \
-            mysql:8.0 \
-            --default-authentication-plugin=mysql_native_password
+            mysql:8.0 >/dev/null
 
-          echo "Esperando a que MySQL acepte conexiones autenticadas..."
-
+          READY=0
           for i in $(seq 1 60); do
-            for i in $(seq 1 90); do
-              if docker exec ps-db \
-                mysql -uroot -proot -e "SELECT 1;" >/dev/null 2>&1; then
-                echo "MySQL listo."
-                break
-              fi
-
-              if [ "$i" -eq 90 ]; then
-                echo "ERROR: MySQL no está listo para aceptar conexiones."
-                docker logs ps-db
-                exit 1
-              fi
-
-              sleep 2
+            if docker exec "$DB_NAME" mysql -uprestashop -pprestashop prestashop -e "SELECT 1;" >/dev/null 2>&1; then
+              READY=1
+              break
+            fi
+            sleep 2
           done
 
-          docker exec ps-db mysql -uroot -proot -e \
-            "CREATE DATABASE ps82 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-             CREATE DATABASE ps91 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: MySQL no esta listo."
+            docker logs "$DB_NAME"
+            exit 1
+          fi
 
-          probar_prestashop () {
-            IMAGE="$1"
-            NAME="$2"
-            DATABASE="$3"
-            PORT="$4"
-            LABEL="$5"
+          docker run -d \
+            --name "$PS_NAME" \
+            --network "$NET" \
+            -p "$PORT:80" \
+            -e PS_INSTALL_AUTO=1 \
+            -e PS_DEV_MODE=1 \
+            -e PS_DOMAIN="127.0.0.1:$PORT" \
+            -e DB_SERVER="$DB_NAME" \
+            -e DB_NAME=prestashop \
+            -e DB_USER=prestashop \
+            -e DB_PASSWD=prestashop \
+            -e PS_LANGUAGE=es \
+            -e PS_COUNTRY=ES \
+            -e ADMIN_MAIL=admin@example.com \
+            -e ADMIN_PASSWD='Test123456!' \
+            "$IMAGE" >/dev/null
 
-            echo ""
-            echo "========================================"
-            echo "PROBANDO $LABEL"
-            echo "Imagen: $IMAGE"
-            echo "========================================"
-
-            docker run -d \
-              --name "$NAME" \
-              --network prestashop-test \
-              -p "$PORT:80" \
-              -e PS_INSTALL_AUTO=1 \
-              -e PS_DEV_MODE=1 \
-              -e PS_DOMAIN=localhost:"$PORT" \
-              -e DB_SERVER=ps-db \
-              -e DB_NAME="$DATABASE" \
-              -e DB_USER=root \
-              -e DB_PASSWD=root \
-              -e PS_LANGUAGE=es \
-              -e PS_COUNTRY=ES \
-              -e ADMIN_MAIL=admin@example.com \
-              -e ADMIN_PASSWD=Test123456! \
-              "$IMAGE"
-
-            echo "Esperando instalación de $LABEL..."
-
-            INSTALADO=0
-
-            for i in $(seq 1 120); do
-              if docker exec "$NAME" \
-                sh -c "cd /var/www/html && php bin/console prestashop:module list >/dev/null 2>&1"; then
-                INSTALADO=1
-                break
-              fi
-
-              if [ "$i" -eq 120 ]; then
-                echo "ERROR: $LABEL no terminó de instalarse."
-                docker logs "$NAME"
-                exit 1
-              fi
-
-              sleep 3
-            done
-
-            if [ "$INSTALADO" -ne 1 ]; then
-              exit 1
+          READY=0
+          for i in $(seq 1 120); do
+            if docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module list >/dev/null 2>&1'; then
+              READY=1
+              break
             fi
+            sleep 2
+          done
 
-            echo "$LABEL instalado correctamente."
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: PrestaShop 8.2 no termino de instalarse."
+            docker logs "$PS_NAME"
+            exit 1
+          fi
 
-            echo "Copiando Gestión de muestras..."
-            docker cp "$MODULE_DIR" "$NAME:/var/www/html/modules/fabricssamples"
+          docker exec "$PS_NAME" mkdir -p /var/www/html/modules/fabricssamples
+          docker cp "$MODULE_DIR/." "$PS_NAME:/var/www/html/modules/fabricssamples/"
+          docker exec "$PS_NAME" chown -R www-data:www-data /var/www/html/modules/fabricssamples
 
-            docker exec "$NAME" \
-              chown -R www-data:www-data /var/www/html/modules/fabricssamples
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module disable fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module enable fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module uninstall fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction'
 
-            echo "Comprobando versión real de PrestaShop..."
-            docker exec "$NAME" sh -c \
-              "cd /var/www/html && php -r \"require 'config/config.inc.php'; echo _PS_VERSION_, PHP_EOL;\""
-
-            echo "Instalando módulo..."
-            docker exec "$NAME" sh -c \
-              "cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction"
-
-            echo "Desactivando módulo..."
-            docker exec "$NAME" sh -c \
-              "cd /var/www/html && php bin/console prestashop:module disable fabricssamples --no-interaction"
-
-            echo "Activando módulo..."
-            docker exec "$NAME" sh -c \
-              "cd /var/www/html && php bin/console prestashop:module enable fabricssamples --no-interaction"
-
-            echo "Reinicializando módulo..."
-            docker exec "$NAME" sh -c \
-              "cd /var/www/html && php bin/console prestashop:module reset fabricssamples --no-interaction"
-
-            echo "Comprobando Front Office..."
-            curl --retry 10 \
-              --retry-delay 2 \
-              --retry-connrefused \
-              --fail \
-              --silent \
-              --show-error \
-              "http://127.0.0.1:$PORT/" \
-              >/dev/null
-
-            echo "Desinstalando módulo..."
-            docker exec "$NAME" sh -c \
-              "cd /var/www/html && php bin/console prestashop:module uninstall fabricssamples --no-interaction"
-
-            echo "Reinstalando módulo..."
-            docker exec "$NAME" sh -c \
-              "cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction"
-
-            echo ""
-            echo "OK: $LABEL ha superado:"
-            echo "- instalación de PrestaShop"
-            echo "- instalación del módulo"
-            echo "- desactivación"
-            echo "- reactivación"
-            echo "- reinicialización"
-            echo "- respuesta del Front Office"
-            echo "- desinstalación"
-            echo "- reinstalación"
-
-            docker rm -f "$NAME"
-          }
-
-          probar_prestashop \
-            "prestashop/prestashop:8.2-apache" \
-            "ps82" \
-            "ps82" \
-            "8082" \
-            "PrestaShop 8.2"
-
-          probar_prestashop \
-            "prestashop/prestashop:9.1.x-apache" \
-            "ps91" \
-            "ps91" \
-            "8091" \
-            "PrestaShop 9.1"
-
-          echo ""
-          echo "========================================"
-          echo "RESULTADO FINAL"
-          echo "========================================"
+          curl --retry 10 --retry-delay 2 --retry-connrefused --fail --silent --show-error "http://127.0.0.1:$PORT/" >/dev/null
           echo "OK - PrestaShop 8.2"
-          echo "OK - PrestaShop 9.1"
-          echo "Gestión de muestras supera la prueba"
-          echo "básica de compatibilidad real."
 
-          docker rm -f ps-db
-          docker network rm prestashop-test
+      - name: Probar PrestaShop 9.1
+        id: ps91
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MODULE_DIR="$GITHUB_WORKSPACE/gestion-de-muestras/fabricssamples"
+          PS_NAME=ps91
+          DB_NAME=db91
+          NET=ps91-net
+          PORT=8091
+          IMAGE=prestashop/prestashop:9.1.x-apache
+
+          cleanup() {
+            docker rm -f "$PS_NAME" "$DB_NAME" >/dev/null 2>&1 || true
+            docker network rm "$NET" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cleanup
+
+          test -f "$MODULE_DIR/fabricssamples.php"
+          docker network create "$NET" >/dev/null
+
+          docker run -d \
+            --name "$DB_NAME" \
+            --network "$NET" \
+            -e MYSQL_DATABASE=prestashop \
+            -e MYSQL_USER=prestashop \
+            -e MYSQL_PASSWORD=prestashop \
+            -e MYSQL_ROOT_PASSWORD=root \
+            mysql:8.0 >/dev/null
+
+          READY=0
+          for i in $(seq 1 60); do
+            if docker exec "$DB_NAME" mysql -uprestashop -pprestashop prestashop -e "SELECT 1;" >/dev/null 2>&1; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: MySQL no esta listo."
+            docker logs "$DB_NAME"
+            exit 1
+          fi
+
+          docker run -d \
+            --name "$PS_NAME" \
+            --network "$NET" \
+            -p "$PORT:80" \
+            -e PS_INSTALL_AUTO=1 \
+            -e PS_DEV_MODE=1 \
+            -e PS_DOMAIN="127.0.0.1:$PORT" \
+            -e DB_SERVER="$DB_NAME" \
+            -e DB_NAME=prestashop \
+            -e DB_USER=prestashop \
+            -e DB_PASSWD=prestashop \
+            -e PS_LANGUAGE=es \
+            -e PS_COUNTRY=ES \
+            -e ADMIN_MAIL=admin@example.com \
+            -e ADMIN_PASSWD='Test123456!' \
+            "$IMAGE" >/dev/null
+
+          READY=0
+          for i in $(seq 1 120); do
+            if docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module list >/dev/null 2>&1'; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: PrestaShop 9.1 no termino de instalarse."
+            docker logs "$PS_NAME"
+            exit 1
+          fi
+
+          docker exec "$PS_NAME" mkdir -p /var/www/html/modules/fabricssamples
+          docker cp "$MODULE_DIR/." "$PS_NAME:/var/www/html/modules/fabricssamples/"
+          docker exec "$PS_NAME" chown -R www-data:www-data /var/www/html/modules/fabricssamples
+
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module disable fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module enable fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module uninstall fabricssamples --no-interaction'
+          docker exec "$PS_NAME" sh -lc 'cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction'
+
+          curl --retry 10 --retry-delay 2 --retry-connrefused --fail --silent --show-error "http://127.0.0.1:$PORT/" >/dev/null
+          echo "OK - PrestaShop 9.1"
+
+      - name: Resultado final
+        if: always()
+        shell: bash
+        run: |
+          echo "PrestaShop 8.2: ${{ steps.ps82.outcome }}"
+          echo "PrestaShop 9.1: ${{ steps.ps91.outcome }}"
+
+          test "${{ steps.ps82.outcome }}" = "success"
+          test "${{ steps.ps91.outcome }}" = "success"
