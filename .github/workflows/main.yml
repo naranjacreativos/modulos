@@ -5,13 +5,13 @@ on:
     branches: [main]
     paths:
       - 'gestion-de-muestras/fabricssamples/**'
-      - '.github/workflows/main.yml'
+      - '.github/workflows/**'
 
   pull_request:
     branches: [main]
     paths:
       - 'gestion-de-muestras/fabricssamples/**'
-      - '.github/workflows/main.yml'
+      - '.github/workflows/**'
 
   workflow_dispatch:
 
