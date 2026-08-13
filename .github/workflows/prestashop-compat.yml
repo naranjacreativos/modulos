@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Descargar codigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Probar modulo en PrestaShop 8.2 y 9.1
         shell: bash
@@ -39,20 +39,23 @@ jobs:
             mysql:8.0 \
             --default-authentication-plugin=mysql_native_password
 
-          echo "Esperando a MySQL..."
+          echo "Esperando a que MySQL acepte conexiones autenticadas..."
 
           for i in $(seq 1 60); do
-            if docker exec ps-db mysqladmin ping -uroot -proot --silent; then
-              break
-            fi
+            for i in $(seq 1 90); do
+              if docker exec ps-db \
+                mysql -uroot -proot -e "SELECT 1;" >/dev/null 2>&1; then
+                echo "MySQL listo."
+                break
+              fi
 
-            if [ "$i" -eq 60 ]; then
-              echo "ERROR: MySQL no ha arrancado."
-              docker logs ps-db
-              exit 1
-            fi
+              if [ "$i" -eq 90 ]; then
+                echo "ERROR: MySQL no está listo para aceptar conexiones."
+                docker logs ps-db
+                exit 1
+              fi
 
-            sleep 2
+              sleep 2
           done
 
           docker exec ps-db mysql -uroot -proot -e \
