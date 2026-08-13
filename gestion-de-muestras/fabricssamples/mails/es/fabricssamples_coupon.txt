@@ -1,0 +1,19 @@
+Hola {firstname} {lastname},
+
+Gracias por solicitar muestras de tejidos en {shop_name}.
+Hemos generado tu cupón asociado al pedido {order_reference}.
+
+CÓDIGO DE DESCUENTO
+{coupon_code}
+
+Valor del cupón: {coupon_value}
+Compra mínima: {minimum_order}
+Válido hasta: {date_to}
+
+Condiciones de uso:
+{restriction_text}
+El cupón está vinculado a tu cuenta de cliente y debe introducirse en el carrito antes de finalizar la compra.
+
+Ir a la tienda: {shop_url}
+
+Conserva este correo hasta utilizar el cupón.

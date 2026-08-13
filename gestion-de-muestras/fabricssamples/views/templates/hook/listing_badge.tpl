@@ -1,0 +1,1 @@
+<a class="btn fabric-sample-button fabric-sample-listing-button fabric-sample-catalog-link" style="{$fs_listing_button_style|escape:'htmlall':'UTF-8'}" href="{$fs_catalog_url|escape:'htmlall':'UTF-8'}?producto={$fs_id_product|intval}">{$fs_listing_button_text|escape:'htmlall':'UTF-8'}</a>

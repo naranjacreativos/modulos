@@ -1,0 +1,20 @@
+Hello {firstname} {lastname},
+
+We have issued a replacement coupon at {shop_name} for order {order_reference}.
+Reissue: #{reissue_number}
+Previous coupon: {original_coupon_code}
+
+NEW DISCOUNT CODE
+{coupon_code}
+
+Coupon value: {coupon_value}
+Minimum order: {minimum_order}
+Valid until: {date_to}
+
+How to use it:
+{restriction_text}
+The new coupon is linked to your customer account and must be entered in the cart before completing checkout.
+
+Go to the store: {shop_url}
+
+The original coupon and your order history have not been modified.

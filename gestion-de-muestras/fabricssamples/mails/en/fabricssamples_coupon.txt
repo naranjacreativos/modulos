@@ -1,0 +1,19 @@
+Hello {firstname} {lastname},
+
+Thank you for ordering fabric samples from {shop_name}.
+We have created your coupon linked to order {order_reference}.
+
+DISCOUNT CODE
+{coupon_code}
+
+Coupon value: {coupon_value}
+Minimum order: {minimum_order}
+Valid until: {date_to}
+
+How to use it:
+{restriction_text}
+The coupon is linked to your customer account and must be entered in the cart before completing checkout.
+
+Go to the store: {shop_url}
+
+Keep this email until you use the coupon.

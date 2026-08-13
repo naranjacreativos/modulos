@@ -1,0 +1,22 @@
+<div class="panel fs-operations-header">
+  <div class="panel-heading"><i class="icon-eye"></i> {l s='Auditoría administrativa' mod='fabricssamples'}</div>
+  <p>{l s='Registro de cambios sensibles realizados por empleados: configuración, productos, stock, límites y operaciones de diagnóstico.' mod='fabricssamples'}</p>
+</div>
+<div class="panel">
+  <div class="panel-heading"><i class="icon-list"></i> {l s='Registro de auditoría' mod='fabricssamples'} <span class="badge">{$fs_audit_total|intval}</span></div>
+  <form method="get" class="form-inline fs-operation-filter">
+    <input type="hidden" name="controller" value="AdminFabricSamplesAudit"><input type="hidden" name="token" value="{$smarty.get.token|escape:'htmlall':'UTF-8'}">
+    <select class="form-control" name="audit_action"><option value="">{l s='Todas las acciones' mod='fabricssamples'}</option>{foreach from=$fs_audit_actions item=a}<option value="{$a|escape:'htmlall':'UTF-8'}"{if $fs_audit_action_filter==$a} selected{/if}>{$a|escape:'htmlall':'UTF-8'}</option>{/foreach}</select>
+    <input class="form-control" name="audit_search" value="{$fs_audit_search|escape:'htmlall':'UTF-8'}" placeholder="{l s='Empleado, entidad, ID o nota' mod='fabricssamples'}">
+    <select class="form-control" name="limit">{foreach from=[20,50,100,200] item=n}<option value="{$n}"{if $fs_audit_limit==$n} selected{/if}>{$n}</option>{/foreach}</select>
+    <button class="btn btn-default" type="submit"><i class="icon-search"></i> {l s='Filtrar' mod='fabricssamples'}</button>
+    <button class="btn btn-default" name="exportFabricSamplesAudit" value="1" type="submit"><i class="icon-download"></i> {l s='Exportar CSV' mod='fabricssamples'}</button>
+  </form>
+  <form method="post" action="{$fs_audit_url|escape:'htmlall':'UTF-8'}" onsubmit="return confirm('{l s='¿Eliminar definitivamente los registros de auditoría seleccionados?' mod='fabricssamples' js=1}');">
+    <div class="table-responsive-row clearfix"><table class="table fs-operation-table"><thead><tr><th><input type="checkbox" class="js-fs-audit-check-all" aria-label="{l s='Seleccionar todos' mod='fabricssamples'}"></th><th>{l s='Fecha' mod='fabricssamples'}</th><th>{l s='Empleado' mod='fabricssamples'}</th><th>{l s='Acción' mod='fabricssamples'}</th><th>{l s='Entidad' mod='fabricssamples'}</th><th>{l s='Valor anterior' mod='fabricssamples'}</th><th>{l s='Valor nuevo' mod='fabricssamples'}</th><th>{l s='Nota' mod='fabricssamples'}</th><th>IP</th><th>{l s='Acciones' mod='fabricssamples'}</th></tr></thead><tbody>
+    {foreach from=$fs_audit_rows item=row}<tr><td><input type="checkbox" class="js-fs-audit-checkbox" name="auditBox[]" value="{$row.id_fabricssamples_audit|intval}"></td><td>{$row.date_add|escape:'htmlall':'UTF-8'}</td><td>{if $row.id_employee}#{$row.id_employee|intval} {/if}{$row.employee_name|escape:'htmlall':'UTF-8'}</td><td><code>{$row.action|escape:'htmlall':'UTF-8'}</code></td><td>{$row.entity_type|escape:'htmlall':'UTF-8'}{if $row.entity_id} #{$row.entity_id|escape:'htmlall':'UTF-8'}{/if}</td><td><details><summary>{l s='Ver' mod='fabricssamples'}</summary><pre>{$row.old_value_json|escape:'htmlall':'UTF-8'}</pre></details></td><td><details><summary>{l s='Ver' mod='fabricssamples'}</summary><pre>{$row.new_value_json|escape:'htmlall':'UTF-8'}</pre></details></td><td>{$row.note|escape:'htmlall':'UTF-8'}</td><td>{$row.ip_address|escape:'htmlall':'UTF-8'}</td><td><button class="btn btn-danger btn-xs" type="submit" name="deleteFabricSamplesAudit" value="{$row.id_fabricssamples_audit|intval}"><i class="icon-trash"></i> {l s='Borrar' mod='fabricssamples'}</button></td></tr>{foreachelse}<tr><td colspan="10" class="text-center text-muted">{l s='Todavía no hay registros de auditoría.' mod='fabricssamples'}</td></tr>{/foreach}
+    </tbody></table></div>
+    {if $fs_audit_rows|@count > 0}<button class="btn btn-danger" type="submit" name="bulkDeleteFabricSamplesAudit" value="1"><i class="icon-trash"></i> {l s='Borrar seleccionados' mod='fabricssamples'}</button>{/if}
+  </form>
+  {if $fs_audit_pages>1}<ul class="pagination">{foreach from=$fs_audit_pagination_window item=page_number}{if $page_number>0}<li class="{if $fs_audit_page==$page_number}active{/if}"><a href="{$fs_audit_url|escape:'htmlall':'UTF-8'}&page={$page_number|intval}&limit={$fs_audit_limit|intval}&audit_action={$fs_audit_action_filter|urlencode}&audit_search={$fs_audit_search|urlencode}">{$page_number|intval}</a></li>{else}<li class="disabled"><span>…</span></li>{/if}{/foreach}</ul>{/if}
+</div>

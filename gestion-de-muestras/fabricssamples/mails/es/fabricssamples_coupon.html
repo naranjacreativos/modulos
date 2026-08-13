@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tu cupón de descuento</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#222222;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Tu cupón por las muestras de tejidos ya está disponible.</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f5f5f5;margin:0;padding:0;">
+    <tr>
+      <td align="center" style="padding:28px 12px;">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e7e7e7;border-radius:10px;overflow:hidden;">
+          <tr><td style="height:6px;background:{accent_color};font-size:0;line-height:0;">&nbsp;</td></tr>
+          <tr>
+            <td style="padding:30px 34px 14px;text-align:center;">
+              <div style="font-size:13px;line-height:18px;letter-spacing:.08em;text-transform:uppercase;color:#777777;font-weight:bold;">{shop_name}</div>
+              <h1 style="margin:10px 0 8px;font-size:26px;line-height:34px;color:#1f1f1f;font-weight:700;">Tu descuento ya está disponible</h1>
+              <p style="margin:0 0 8px;font-size:15px;line-height:23px;color:#333333;font-weight:bold;">Hola {firstname},</p>
+              <p style="margin:0;font-size:15px;line-height:23px;color:#5a5a5a;">Gracias por solicitar muestras de tejidos. Hemos generado tu cupón asociado al pedido <strong>{order_reference}</strong>.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 34px 8px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#fafafa;border:1px solid #e6e6e6;border-radius:8px;">
+                <tr><td align="center" style="padding:22px 18px 8px;text-align:center;font-size:12px;line-height:18px;text-transform:uppercase;letter-spacing:.08em;color:#777777;font-weight:bold;">Código de descuento</td></tr>
+                <tr><td align="center" style="padding:0 18px 22px;text-align:center;"><div style="display:inline-block;padding:13px 18px;border:2px dashed {accent_color};border-radius:7px;background:#ffffff;font-family:Consolas,Monaco,'Courier New',monospace;font-size:22px;line-height:28px;font-weight:bold;letter-spacing:.04em;word-break:break-all;color:#111111;">{coupon_code}</div></td></tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 34px 4px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-size:14px;line-height:21px;">
+                <tr><td style="padding:10px 0;border-bottom:1px solid #ededed;color:#666666;">Valor del cupón</td><td align="right" style="padding:10px 0;border-bottom:1px solid #ededed;color:#222222;font-weight:bold;">{coupon_value}</td></tr>
+                <tr><td style="padding:10px 0;border-bottom:1px solid #ededed;color:#666666;">Compra mínima</td><td align="right" style="padding:10px 0;border-bottom:1px solid #ededed;color:#222222;font-weight:bold;">{minimum_order}</td></tr>
+                <tr><td style="padding:10px 0;color:#666666;">Válido hasta</td><td align="right" style="padding:10px 0;color:#222222;font-weight:bold;">{date_to}</td></tr>
+              </table>
+            </td>
+          </tr>
+          <tr><td style="padding:16px 34px 4px;"><div style="padding:14px 16px;background:#f7f7f7;border-radius:7px;font-size:13px;line-height:20px;color:#555555;"><strong style="color:#333333;">Condiciones de uso:</strong> {restriction_text} El cupón está vinculado a tu cuenta de cliente y debe introducirse en el carrito antes de finalizar la compra.</div></td></tr>
+          <tr><td align="center" style="padding:24px 34px 12px;text-align:center;"><a href="{shop_url}" style="display:inline-block;background:{accent_color};color:{accent_text_color};text-decoration:none;font-size:15px;line-height:20px;font-weight:bold;padding:13px 24px;border-radius:6px;">Ir a la tienda</a></td></tr>
+          <tr><td style="padding:12px 34px 30px;text-align:center;font-size:12px;line-height:19px;color:#8a8a8a;">Conserva este correo hasta utilizar el cupón. Si el código no se aplica, comprueba la fecha de validez, la compra mínima y las condiciones indicadas arriba.</td></tr>
+        </table>
+        <div style="max-width:600px;margin:12px auto 0;text-align:center;font-size:11px;line-height:17px;color:#9a9a9a;">Este correo se ha generado automáticamente por tu solicitud de muestras en {shop_name}.</div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_audit`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_limit_event`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_limit_reset`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_limit_exception`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_schema_migration`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_stock_movement`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_conversion`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_coupon_suppression`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_coupon_reissue`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_coupon`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_history_exclusion`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_order`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_cart`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_product_lang`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_product`;
+DROP TABLE IF EXISTS `PREFIX_fabricssamples_rate_limit`;

@@ -1,0 +1,20 @@
+Hola {firstname} {lastname},
+
+Hemos emitido un nuevo cupón de reemplazo en {shop_name} para el pedido {order_reference}.
+Reemisión: #{reissue_number}
+Cupón anterior: {original_coupon_code}
+
+NUEVO CÓDIGO DE DESCUENTO
+{coupon_code}
+
+Valor del cupón: {coupon_value}
+Compra mínima: {minimum_order}
+Válido hasta: {date_to}
+
+Condiciones de uso:
+{restriction_text}
+El nuevo cupón está vinculado a tu cuenta de cliente y debe introducirse en el carrito antes de finalizar la compra.
+
+Ir a la tienda: {shop_url}
+
+El cupón original y el historial de tus pedidos no se han modificado.

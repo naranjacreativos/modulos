@@ -1,0 +1,6 @@
+.fs-diagnostic-header .btn{margin-left:.4rem}.fs-diagnostic-summary{margin-bottom:18px}.fs-summary-card{display:flex;align-items:center;justify-content:center;gap:12px;min-height:78px;border-radius:4px;border:1px solid #d9d9d9;background:#fff}.fs-summary-card strong{font-size:30px}.fs-summary-card span{font-weight:600}.fs-summary-ok{border-left:5px solid #46a74e}.fs-summary-warning{border-left:5px solid #f0ad4e}.fs-summary-error{border-left:5px solid #d9534f}.fs-summary-info{border-left:5px solid #25b9d7}.fs-diagnostic-actions .btn-group-wrapper{display:flex;flex-wrap:wrap;gap:8px}.fs-diagnostic-table td,.fs-diagnostic-table th{vertical-align:middle!important}.fs-diagnostic-status{display:inline-block;min-width:76px;padding:4px 9px;border-radius:12px;text-align:center;text-transform:uppercase;font-size:11px;font-weight:700}.fs-status-ok{background:#dff0d8;color:#2b6b2f}.fs-status-warning{background:#fcf8e3;color:#8a6d3b}.fs-status-error{background:#f2dede;color:#a94442}.fs-status-info{background:#d9edf7;color:#31708f}@media(max-width:767px){.fs-diagnostic-header .text-right{text-align:left;margin-top:12px}.fs-diagnostic-header .btn{margin:0 4px 4px 0}.fs-summary-card{margin-bottom:8px}.fs-diagnostic-actions .btn{width:100%}}
+
+.fs-reset-warning {
+  margin-top: 12px;
+  font-weight: 600;
+}
