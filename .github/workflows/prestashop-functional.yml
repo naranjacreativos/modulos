@@ -1,0 +1,619 @@
+name: Gestion de muestras - Pruebas funcionales
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  funcional:
+    name: Funcional PrestaShop ${{ matrix.ps }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ps: '8.2'
+            image: prestashop/prestashop:8.2-apache
+            port: '8082'
+            suffix: '82'
+          - ps: '9.1'
+            image: prestashop/prestashop:9.1.x-apache
+            port: '8091'
+            suffix: '91'
+
+    env:
+      PS_VERSION: ${{ matrix.ps }}
+      PS_IMAGE: ${{ matrix.image }}
+      PORT: ${{ matrix.port }}
+      SUFFIX: ${{ matrix.suffix }}
+      PS_NAME: ps-functional-${{ matrix.suffix }}
+      DB_NAME: db-functional-${{ matrix.suffix }}
+      NET_NAME: fs-functional-${{ matrix.suffix }}
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v6
+
+      - name: Instalar PrestaShop y ejecutar pruebas funcionales
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MODULE_DIR="$GITHUB_WORKSPACE/gestion-de-muestras/fabricssamples"
+          ARTIFACT_DIR="$GITHUB_WORKSPACE/test-artifacts/$SUFFIX"
+          DB_PASSWORD="Fs$(openssl rand -hex 10)"
+          DB_ROOT_PASSWORD="Root$(openssl rand -hex 10)"
+          ADMIN_PASSWORD="Aa1!$(openssl rand -hex 8)"
+
+          mkdir -p "$ARTIFACT_DIR"
+
+          cleanup_existing() {
+            docker rm -f "$PS_NAME" "$DB_NAME" >/dev/null 2>&1 || true
+            docker network rm "$NET_NAME" >/dev/null 2>&1 || true
+          }
+
+          wait_for_db() {
+            local ready=0
+            for i in $(seq 1 60); do
+              if docker exec "$DB_NAME" \
+                mysql -uprestashop -p"$DB_PASSWORD" prestashop \
+                -e "SELECT 1;" >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$ready" -ne 1 ]; then
+              echo "ERROR: MySQL no esta listo."
+              docker logs "$DB_NAME" || true
+              return 1
+            fi
+          }
+
+          wait_for_files() {
+            local ready=0
+            for i in $(seq 1 90); do
+              if docker exec "$PS_NAME" \
+                test -f /var/www/html/install/index_cli.php \
+                >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+
+              if ! docker inspect -f '{{.State.Running}}' "$PS_NAME" \
+                2>/dev/null | grep -q '^true$'; then
+                echo "ERROR: El contenedor PrestaShop se ha detenido."
+                docker logs "$PS_NAME" || true
+                return 1
+              fi
+
+              sleep 2
+            done
+
+            if [ "$ready" -ne 1 ]; then
+              echo "ERROR: No aparece install/index_cli.php."
+              docker logs "$PS_NAME" || true
+              return 1
+            fi
+          }
+
+          cleanup_existing
+
+          echo "=== PrestaShop $PS_VERSION: preparando entorno ==="
+          test -f "$MODULE_DIR/fabricssamples.php"
+          test -f "$MODULE_DIR/mails/es/fabricssamples_coupon.html"
+
+          docker network create "$NET_NAME" >/dev/null
+
+          docker run -d \
+            --name "$DB_NAME" \
+            --network "$NET_NAME" \
+            -e MYSQL_DATABASE=prestashop \
+            -e MYSQL_USER=prestashop \
+            -e MYSQL_PASSWORD="$DB_PASSWORD" \
+            -e MYSQL_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \
+            mysql:8.0 >/dev/null
+
+          wait_for_db
+
+          docker run -d \
+            --name "$PS_NAME" \
+            --network "$NET_NAME" \
+            -p "$PORT:80" \
+            -e PS_INSTALL_AUTO=0 \
+            -e PS_DEV_MODE=1 \
+            -e DB_SERVER="$DB_NAME" \
+            -e DB_NAME=prestashop \
+            -e DB_USER=prestashop \
+            -e DB_PASSWD="$DB_PASSWORD" \
+            "$PS_IMAGE" >/dev/null
+
+          wait_for_files
+
+          echo "=== Corrigiendo permisos e instalando PrestaShop ==="
+          docker exec "$PS_NAME" chown -R www-data:www-data /var/www/html
+
+          docker exec -u www-data "$PS_NAME" \
+            php /var/www/html/install/index_cli.php \
+              --domain="localhost:$PORT" \
+              --db_server="$DB_NAME" \
+              --db_name=prestashop \
+              --db_user=prestashop \
+              --db_password="$DB_PASSWORD" \
+              --db_clear=1 \
+              --prefix=ps_ \
+              --language=es \
+              --country=es \
+              --name='Tienda funcional CI' \
+              --firstname=CI \
+              --lastname=Admin \
+              --email=admin@example.com \
+              --password="$ADMIN_PASSWORD" \
+              --license=0 \
+              --fixtures=1
+
+          docker exec "$PS_NAME" rm -rf /var/www/html/install
+          docker exec "$PS_NAME" chown -R www-data:www-data /var/www/html
+
+          echo "=== Copiando e instalando Gestion de muestras ==="
+          docker exec "$PS_NAME" mkdir -p /var/www/html/modules/fabricssamples
+          docker cp "$MODULE_DIR/." "$PS_NAME:/var/www/html/modules/fabricssamples/"
+          docker exec "$PS_NAME" chown -R www-data:www-data /var/www/html/modules/fabricssamples
+
+          docker exec -u www-data "$PS_NAME" sh -lc \
+            'cd /var/www/html && php bin/console prestashop:module install fabricssamples --no-interaction'
+
+          echo "=== Preparando modulo de pago de pruebas ==="
+          docker exec -u www-data "$PS_NAME" sh -lc \
+            'cd /var/www/html && php bin/console prestashop:module install ps_wirepayment --no-interaction >/dev/null 2>&1 || true'
+          docker exec -u www-data "$PS_NAME" sh -lc \
+            'cd /var/www/html && php bin/console prestashop:module enable ps_wirepayment --no-interaction >/dev/null 2>&1 || true'
+
+          cat > /tmp/fs-functional.php <<'PHP'
+          <?php
+          declare(strict_types=1);
+
+          require '/var/www/html/config/config.inc.php';
+
+          function fs_fail(string $message): void
+          {
+              fwrite(STDERR, "FAIL: {$message}\n");
+              exit(1);
+          }
+
+          function fs_assert(bool $condition, string $message): void
+          {
+              if (!$condition) {
+                  fs_fail($message);
+              }
+              echo "OK: {$message}\n";
+          }
+
+          function fs_scalar(string $sql)
+          {
+              return Db::getInstance()->getValue($sql);
+          }
+
+          function fs_row(string $sql): array
+          {
+              $row = Db::getInstance()->getRow($sql);
+              return is_array($row) ? $row : [];
+          }
+
+          $context = Context::getContext();
+          $idShop = (int) Configuration::get('PS_SHOP_DEFAULT');
+          $idLang = (int) Configuration::get('PS_LANG_DEFAULT');
+          $idCurrency = (int) Configuration::get('PS_CURRENCY_DEFAULT');
+          $idCountry = (int) Configuration::get('PS_COUNTRY_DEFAULT');
+          $idGroup = (int) Configuration::get('PS_CUSTOMER_GROUP');
+
+          fs_assert($idShop > 0, 'Existe una tienda por defecto');
+          fs_assert($idLang > 0, 'Existe un idioma por defecto');
+          fs_assert($idCurrency > 0, 'Existe una moneda por defecto');
+          fs_assert($idCountry > 0, 'Existe un pais por defecto');
+
+          Shop::setContext(Shop::CONTEXT_SHOP, $idShop);
+          $context->shop = new Shop($idShop);
+          $context->language = new Language($idLang);
+          $context->currency = new Currency($idCurrency);
+          $context->country = new Country($idCountry, $idLang);
+
+          if (!($context->cookie instanceof Cookie)) {
+              $context->cookie = new Cookie('fsfunctional');
+          }
+
+          $module = Module::getInstanceByName('fabricssamples');
+          fs_assert($module instanceof Module && (int) $module->active === 1, 'Gestion de muestras esta instalado y activo');
+
+          Configuration::updateValue('FABRICS_SAMPLES_LIMITS_ENABLED', 1);
+          Configuration::updateValue('FABRICS_SAMPLES_MAX_TOTAL', 3);
+          Configuration::updateValue('FABRICS_SAMPLES_MAX_PER_PRODUCT', 2);
+          Configuration::updateValue('FABRICS_SAMPLES_MAX_CUSTOMER_TOTAL_PERIOD', 0);
+          Configuration::updateValue('FABRICS_SAMPLES_MAX_CUSTOMER_PRODUCT_PERIOD', 0);
+          Configuration::updateValue('FABRICS_SAMPLES_COUPON_ENABLED', 1);
+          Configuration::updateValue('FABRICS_SAMPLES_COUPON_TRIGGER', 'order');
+          Configuration::updateValue('FABRICS_SAMPLES_COUPON_VALUE_MODE', 'full');
+          Configuration::updateValue('FABRICS_SAMPLES_COUPON_SAMPLE_PERCENT', 100);
+          Configuration::updateValue('FABRICS_SAMPLES_COUPON_MINIMUM_ORDER', 0);
+          Configuration::updateValue('FABRICS_SAMPLES_COUPON_LIMIT_TO_PRODUCTS', 0);
+          Configuration::updateValue('FABRICS_SAMPLES_COUPON_SEND_EMAIL', 0);
+          Configuration::updateValue('FABRICS_SAMPLES_ENABLE_CATALOG', 1);
+          Configuration::updateValue('PS_MAIL_METHOD', 3);
+
+          $customer = new Customer();
+          $customer->firstname = 'Cliente';
+          $customer->lastname = 'Funcional';
+          $customer->email = 'funcional-' . bin2hex(random_bytes(5)) . '@example.com';
+          $customer->passwd = Tools::hash('Functional123!');
+          $customer->active = 1;
+          $customer->is_guest = 0;
+          $customer->id_default_group = $idGroup;
+          $customer->id_shop = $idShop;
+          $customer->id_shop_group = (int) $context->shop->id_shop_group;
+          $customer->secure_key = md5(uniqid((string) mt_rand(), true));
+          fs_assert((bool) $customer->add(), 'Se crea un cliente real de pruebas');
+          if ($idGroup > 0) {
+              $customer->addGroups([$idGroup]);
+          }
+
+          $address = new Address();
+          $address->id_customer = (int) $customer->id;
+          $address->id_country = $idCountry;
+          $address->alias = 'Funcional CI';
+          $address->firstname = $customer->firstname;
+          $address->lastname = $customer->lastname;
+          $address->address1 = 'Calle Prueba 1';
+          $address->postcode = '28001';
+          $address->city = 'Madrid';
+          fs_assert((bool) $address->add(), 'Se crea una direccion real de pruebas');
+
+          $idCategory = (int) Configuration::get('PS_HOME_CATEGORY');
+          if ($idCategory <= 0) {
+              $idCategory = (int) Configuration::get('PS_ROOT_CATEGORY');
+          }
+
+          $product = new Product();
+          $product->id_category_default = $idCategory;
+          $product->price = 10.00;
+          $product->wholesale_price = 0.00;
+          $product->id_tax_rules_group = 0;
+          $product->active = 1;
+          $product->available_for_order = 1;
+          $product->show_price = 1;
+          $product->visibility = 'both';
+          $product->minimal_quantity = 1;
+          $product->reference = 'FS-CI-' . strtoupper(bin2hex(random_bytes(3)));
+          $product->name = [];
+          $product->link_rewrite = [];
+
+          foreach (Language::getLanguages(false) as $language) {
+              $langId = (int) $language['id_lang'];
+              $product->name[$langId] = 'Muestra funcional CI';
+              $product->link_rewrite[$langId] = 'muestra-funcional-ci-' . $langId;
+          }
+
+          fs_assert((bool) $product->add(), 'Se crea un producto real de pruebas');
+          if ($idCategory > 0) {
+              $product->addToCategories([$idCategory]);
+          }
+
+          StockAvailable::setQuantity((int) $product->id, 0, 100, $idShop);
+          fs_assert(
+              (int) StockAvailable::getQuantityAvailableByProduct((int) $product->id, 0, $idShop) === 100,
+              'El producto empieza con stock nativo 100'
+          );
+
+          $now = date('Y-m-d H:i:s');
+          fs_assert(
+              Db::getInstance()->insert('fabricssamples_product', [
+                  'id_product' => (int) $product->id,
+                  'id_shop' => $idShop,
+                  'active' => 1,
+                  'use_default_price' => 1,
+                  'sample_price' => 0,
+                  'size_text' => pSQL('10 x 10 cm'),
+                  'info_text' => pSQL('Muestra funcional automatizada', true),
+                  'available' => 1,
+                  'stock_mode' => pSQL('independent'),
+                  'sample_stock' => 5,
+                  'max_per_order' => 2,
+                  'max_per_customer' => 0,
+                  'sample_weight' => 0.02,
+                  'tax_mode' => pSQL('inherit'),
+                  'id_tax_rules_group' => 0,
+                  'internal_notes' => pSQL('Creado por GitHub Actions', true),
+                  'date_add' => $now,
+                  'date_upd' => $now,
+              ]),
+              'Se configura el producto como muestra activa con stock independiente'
+          );
+
+          $idCarrier = (int) fs_scalar(
+              'SELECT c.id_carrier'
+              . ' FROM `' . _DB_PREFIX_ . 'carrier` c'
+              . ' INNER JOIN `' . _DB_PREFIX_ . 'carrier_shop` cs ON cs.id_carrier=c.id_carrier'
+              . ' WHERE c.active=1 AND c.deleted=0 AND cs.id_shop=' . $idShop
+              . ' ORDER BY c.position ASC,c.id_carrier ASC LIMIT 1'
+          );
+          fs_assert($idCarrier > 0, 'Existe un transportista activo');
+
+          $context->customer = $customer;
+          $context->cookie->id_customer = (int) $customer->id;
+          $context->cookie->customer_firstname = $customer->firstname;
+          $context->cookie->customer_lastname = $customer->lastname;
+          $context->cookie->logged = 1;
+          $context->cookie->secure_key = $customer->secure_key;
+
+          $cart = new Cart();
+          $cart->id_shop_group = (int) $context->shop->id_shop_group;
+          $cart->id_shop = $idShop;
+          $cart->id_lang = $idLang;
+          $cart->id_currency = $idCurrency;
+          $cart->id_customer = (int) $customer->id;
+          $cart->id_address_delivery = (int) $address->id;
+          $cart->id_address_invoice = (int) $address->id;
+          $cart->id_carrier = $idCarrier;
+          fs_assert((bool) $cart->add(), 'Se crea un carrito real de pruebas');
+
+          $context->cart = $cart;
+          $context->cookie->id_cart = (int) $cart->id;
+
+          echo "\n=== Carrito de muestras ===\n";
+
+          $idCustomization = (int) $module->addSampleToCart((int) $product->id, 0, 1);
+          fs_assert($idCustomization > 0, 'Se anade una muestra al carrito');
+
+          $moduleQty = (int) fs_scalar(
+              'SELECT quantity FROM `' . _DB_PREFIX_ . 'fabricssamples_cart`'
+              . ' WHERE id_cart=' . (int) $cart->id
+              . ' AND id_customization=' . $idCustomization
+          );
+          $nativeQty = (int) fs_scalar(
+              'SELECT quantity FROM `' . _DB_PREFIX_ . 'cart_product`'
+              . ' WHERE id_cart=' . (int) $cart->id
+              . ' AND id_customization=' . $idCustomization
+          );
+          $customQty = (int) fs_scalar(
+              'SELECT quantity FROM `' . _DB_PREFIX_ . 'customization`'
+              . ' WHERE id_cart=' . (int) $cart->id
+              . ' AND id_customization=' . $idCustomization
+          );
+          fs_assert($moduleQty === 1 && $nativeQty === 1 && $customQty === 1, 'Las tres cantidades del carrito estan sincronizadas a 1');
+
+          $sameCustomization = (int) $module->addSampleToCart((int) $product->id, 0, 1);
+          fs_assert($sameCustomization === $idCustomization, 'La segunda alta reutiliza la misma personalizacion');
+          fs_assert((int) $module->getCartSampleTotal((int) $cart->id) === 2, 'La cantidad total de muestras sube a 2');
+
+          $newQty = (int) $module->updateSampleQuantity($idCustomization, 'down');
+          fs_assert($newQty === 1, 'La cantidad puede reducirse de 2 a 1');
+
+          $limitBlocked = false;
+          try {
+              $module->addSampleToCart((int) $product->id, 0, 2);
+          } catch (Throwable $exception) {
+              $limitBlocked = true;
+              echo 'OK: El limite servidor rechazo la operacion: ' . $exception->getMessage() . "\n";
+          }
+          fs_assert($limitBlocked, 'El limite por referencia se aplica en servidor');
+          fs_assert((int) $module->getCartSampleTotal((int) $cart->id) === 1, 'El intento rechazado no altera el carrito');
+
+          $module->removeSampleFromCart($idCustomization);
+          fs_assert(
+              (int) fs_scalar('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'fabricssamples_cart` WHERE id_cart=' . (int) $cart->id) === 0,
+              'Eliminar la muestra limpia la tabla del modulo'
+          );
+          fs_assert(
+              (int) fs_scalar('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'cart_product` WHERE id_cart=' . (int) $cart->id . ' AND id_customization=' . $idCustomization) === 0,
+              'Eliminar la muestra limpia cart_product'
+          );
+          fs_assert(
+              (int) fs_scalar('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'customization` WHERE id_customization=' . $idCustomization) === 0,
+              'Eliminar la muestra limpia customization'
+          );
+
+          $idCustomization = (int) $module->addSampleToCart((int) $product->id, 0, 1);
+          fs_assert($idCustomization > 0, 'Se vuelve a anadir la muestra para crear un pedido');
+
+          $sampleStockBefore = (int) fs_scalar(
+              'SELECT sample_stock FROM `' . _DB_PREFIX_ . 'fabricssamples_product`'
+              . ' WHERE id_product=' . (int) $product->id . ' AND id_shop=' . $idShop
+          );
+          $nativeStockBefore = (int) StockAvailable::getQuantityAvailableByProduct((int) $product->id, 0, $idShop);
+          fs_assert($sampleStockBefore === 5, 'El stock independiente empieza en 5');
+          fs_assert($nativeStockBefore === 100, 'El stock nativo sigue en 100 antes del pedido');
+
+          echo "\n=== Pedido, historico, stock y cupon ===\n";
+
+          $payment = Module::getInstanceByName('ps_wirepayment');
+          fs_assert($payment instanceof PaymentModule, 'El modulo ps_wirepayment esta disponible para crear el pedido');
+          fs_assert((int) $payment->active === 1, 'ps_wirepayment esta activo');
+
+          $orderState = (int) Configuration::get('PS_OS_PAYMENT');
+          fs_assert($orderState > 0, 'Existe el estado de pedido Pago aceptado');
+
+          $amount = (float) $cart->getOrderTotal(true, Cart::BOTH);
+          fs_assert($amount > 0, 'El carrito tiene un total positivo');
+
+          $payment->validateOrder(
+              (int) $cart->id,
+              $orderState,
+              $amount,
+              'Transferencia funcional CI',
+              null,
+              [],
+              $idCurrency,
+              false,
+              $customer->secure_key
+          );
+
+          $idOrder = (int) $payment->currentOrder;
+          fs_assert($idOrder > 0, 'PrestaShop crea un pedido real');
+
+          $order = new Order($idOrder);
+          fs_assert(Validate::isLoadedObject($order), 'El pedido puede cargarse desde PrestaShop');
+
+          $sampleHistory = fs_row(
+              'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_order`'
+              . ' WHERE id_order=' . $idOrder
+              . ' ORDER BY id_fabricssamples_order ASC LIMIT 1'
+          );
+          fs_assert($sampleHistory !== [], 'El modulo crea el historico de la muestra del pedido');
+          fs_assert((int) ($sampleHistory['quantity'] ?? 0) === 1, 'El historico conserva la cantidad correcta');
+          fs_assert((int) ($sampleHistory['id_order_detail'] ?? 0) > 0, 'El historico queda enlazado al detalle nativo del pedido');
+
+          $sampleStockAfterOrder = (int) fs_scalar(
+              'SELECT sample_stock FROM `' . _DB_PREFIX_ . 'fabricssamples_product`'
+              . ' WHERE id_product=' . (int) $product->id . ' AND id_shop=' . $idShop
+          );
+          $nativeStockAfterOrder = (int) StockAvailable::getQuantityAvailableByProduct((int) $product->id, 0, $idShop);
+          fs_assert($sampleStockAfterOrder === 4, 'El pedido descuenta una unidad del stock independiente de muestras');
+          fs_assert($nativeStockAfterOrder === $nativeStockBefore, 'El pedido de muestra no consume el stock nativo del tejido');
+
+          $coupon = fs_row(
+              'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_coupon`'
+              . ' WHERE id_order=' . $idOrder
+              . ' LIMIT 1'
+          );
+          fs_assert($coupon !== [], 'El pedido genera un cupon de muestras');
+          fs_assert((int) ($coupon['id_cart_rule'] ?? 0) > 0, 'El cupon queda enlazado a una regla de carrito nativa');
+          fs_assert(trim((string) ($coupon['code'] ?? '')) !== '', 'El cupon tiene codigo');
+          fs_assert((float) ($coupon['discount_value'] ?? 0) > 0, 'El cupon tiene un descuento positivo');
+          fs_assert((int) ($coupon['email_sent'] ?? 0) === 0, 'La prueba no envia correos reales');
+
+          $couponRule = new CartRule((int) $coupon['id_cart_rule']);
+          fs_assert(Validate::isLoadedObject($couponRule), 'La regla de carrito del cupon existe');
+          fs_assert((int) $couponRule->active === 1, 'El cupon esta activo mientras el pedido es valido');
+
+          $sampleTotal = (float) ($sampleHistory['total_price_tax_incl'] ?? 0);
+          fs_assert(
+              abs((float) $coupon['discount_value'] - $sampleTotal) < 0.02,
+              'El cupon completo coincide con el importe de la muestra'
+          );
+
+          echo "\n=== Cancelacion y restauracion de stock ===\n";
+
+          $cancelStateId = (int) Configuration::get('PS_OS_CANCELED');
+          fs_assert($cancelStateId > 0, 'Existe el estado Cancelado');
+
+          $orderHistory = new OrderHistory();
+          $orderHistory->id_order = $idOrder;
+          $orderHistory->changeIdOrderState($cancelStateId, $idOrder, true);
+          $cancelledOrder = new Order($idOrder);
+          fs_assert((int) $cancelledOrder->current_state === $cancelStateId, 'Se cambia el pedido al estado Cancelado');
+          fs_assert((bool) $orderHistory->add(), 'Se guarda el cambio de estado del pedido');
+
+          $cancelState = new OrderState($cancelStateId);
+          $module->hookActionOrderStatusPostUpdate([
+              'id_order' => $idOrder,
+              'newOrderStatus' => $cancelState,
+          ]);
+
+          $sampleStockAfterCancel = (int) fs_scalar(
+              'SELECT sample_stock FROM `' . _DB_PREFIX_ . 'fabricssamples_product`'
+              . ' WHERE id_product=' . (int) $product->id . ' AND id_shop=' . $idShop
+          );
+          $nativeStockAfterCancel = (int) StockAvailable::getQuantityAvailableByProduct((int) $product->id, 0, $idShop);
+          fs_assert($sampleStockAfterCancel === 5, 'Cancelar el pedido restaura el stock independiente de muestras');
+          fs_assert($nativeStockAfterCancel === $nativeStockBefore, 'Cancelar mantiene intacto el stock nativo del tejido');
+
+          $couponAfterCancel = fs_row(
+              'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_coupon`'
+              . ' WHERE id_order=' . $idOrder
+              . ' LIMIT 1'
+          );
+          fs_assert((string) ($couponAfterCancel['state'] ?? '') === 'cancelled', 'El cupon pasa a estado cancelado');
+
+          $couponRuleAfterCancel = new CartRule((int) $couponAfterCancel['id_cart_rule']);
+          fs_assert(Validate::isLoadedObject($couponRuleAfterCancel), 'La regla del cupon sigue trazable tras la cancelacion');
+          fs_assert((int) $couponRuleAfterCancel->active === 0, 'El cupon queda desactivado al cancelar el pedido');
+
+          $criticalLogs = (int) fs_scalar(
+              "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . "log`"
+              . " WHERE severity>=3 AND message LIKE '%fabricssamples%'"
+          );
+          fs_assert($criticalLogs === 0, 'No existen errores criticos de fabricssamples en el log de PrestaShop');
+
+          echo "\n========================================\n";
+          echo "PRUEBA FUNCIONAL COMPLETADA CORRECTAMENTE\n";
+          echo "Producto: " . (int) $product->id . "\n";
+          echo "Cliente: " . (int) $customer->id . "\n";
+          echo "Pedido: " . $idOrder . "\n";
+          echo "Cupon: " . (string) $coupon['code'] . "\n";
+          echo "========================================\n";
+          PHP
+
+          docker cp /tmp/fs-functional.php "$PS_NAME:/tmp/fs-functional.php"
+
+          echo "=== Ejecutando recorrido funcional dentro de PrestaShop $PS_VERSION ==="
+          docker exec -u www-data "$PS_NAME" \
+            php /tmp/fs-functional.php 2>&1 | tee "$ARTIFACT_DIR/functional.log"
+
+          echo "=== Comprobando Front Office ==="
+          FRONT_CODE=$(curl \
+            --location \
+            --silent \
+            --show-error \
+            --connect-timeout 5 \
+            --max-time 20 \
+            --output "$ARTIFACT_DIR/front.html" \
+            --write-out '%{http_code}' \
+            "http://localhost:$PORT/")
+          test "$FRONT_CODE" = "200"
+          echo "OK: Front Office HTTP 200" | tee -a "$ARTIFACT_DIR/functional.log"
+
+          echo "=== Comprobando pagina publica de muestras ==="
+          SAMPLES_CODE=$(curl \
+            --location \
+            --silent \
+            --show-error \
+            --connect-timeout 5 \
+            --max-time 20 \
+            --output "$ARTIFACT_DIR/samples.html" \
+            --write-out '%{http_code}' \
+            "http://localhost:$PORT/index.php?fc=module&module=fabricssamples&controller=samples")
+          test "$SAMPLES_CODE" = "200"
+          grep -q "Muestra funcional CI" "$ARTIFACT_DIR/samples.html"
+          echo "OK: La pagina publica de muestras carga y muestra el producto funcional" | tee -a "$ARTIFACT_DIR/functional.log"
+
+          echo "=== Comprobando proteccion basica del controlador AJAX ==="
+          AJAX_CODE=$(curl \
+            --silent \
+            --output "$ARTIFACT_DIR/ajax-get.txt" \
+            --write-out '%{http_code}' \
+            "http://localhost:$PORT/index.php?fc=module&module=fabricssamples&controller=ajax" || true)
+          test "$AJAX_CODE" = "405"
+          echo "OK: El controlador AJAX rechaza peticiones GET con HTTP 405" | tee -a "$ARTIFACT_DIR/functional.log"
+
+          echo "=== RESULTADO FUNCIONAL PrestaShop $PS_VERSION: OK ==="
+
+      - name: Recoger diagnostico si falla
+        if: failure()
+        shell: bash
+        run: |
+          ARTIFACT_DIR="$GITHUB_WORKSPACE/test-artifacts/$SUFFIX"
+          mkdir -p "$ARTIFACT_DIR"
+
+          docker logs "$PS_NAME" > "$ARTIFACT_DIR/docker-prestashop.log" 2>&1 || true
+          docker logs "$DB_NAME" > "$ARTIFACT_DIR/docker-database.log" 2>&1 || true
+          docker cp "$PS_NAME:/var/www/html/var/logs/." "$ARTIFACT_DIR/prestashop-logs/" 2>/dev/null || true
+
+      - name: Guardar diagnostico del fallo
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: funcional-prestashop-${{ matrix.ps }}
+          path: test-artifacts/${{ matrix.suffix }}
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Limpiar contenedores
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f "$PS_NAME" "$DB_NAME" >/dev/null 2>&1 || true
+          docker network rm "$NET_NAME" >/dev/null 2>&1 || true
