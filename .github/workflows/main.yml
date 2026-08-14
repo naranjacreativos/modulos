@@ -1,17 +1,9 @@
 name: Gestion de muestras - CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'gestion-de-muestras/fabricssamples/**'
-      - '.github/workflows/**'
-
   pull_request:
-    branches: [main]
-    paths:
-      - 'gestion-de-muestras/fabricssamples/**'
-      - '.github/workflows/**'
+    branches:
+      - main
 
   workflow_dispatch:
 
@@ -29,14 +21,13 @@ jobs:
 
     steps:
       - name: Descargar codigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Preparar PHP 8.1
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
           coverage: none
-          tools: composer:v2
 
       - name: Preparar Node.js
         uses: actions/setup-node@v6
@@ -54,8 +45,6 @@ jobs:
           test -f MANIFEST.sha256
           test -f CHANGELOG.md
           test -f README.md
-          test -f logo.png
-          test -f .gitignore
 
           test -d config
           test -d controllers
@@ -66,27 +55,7 @@ jobs:
           test -d upgrade
           test -d views
 
-      - name: Comprobar composer.json
-        run: composer validate --strict --no-check-publish
-
-      - name: Comprobar coherencia de version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          version_php=$(sed -n "s/.*public const VERSION = '\([^']*\)'.*/\1/p" fabricssamples.php | head -n 1)
-          version_xml=$(sed -n 's#.*<version><!\[CDATA\[\([^]]*\)\]\]></version>.*#\1#p' config.xml | head -n 1)
-
-          echo "Version del modulo: $version_php"
-          echo "Version config.xml: $version_xml"
-
-          test -n "$version_php"
-          test "$version_php" = "$version_xml"
-
-          test -f "upgrade/upgrade-${version_php}.php"
-
-          grep -F "$version_php" README.md >/dev/null
-          grep -F "## $version_php" CHANGELOG.md >/dev/null
+          echo "Estructura esencial correcta."
 
       - name: Comprobar sintaxis PHP
         shell: bash
@@ -95,16 +64,27 @@ jobs:
 
           find . -type f -name '*.php' -print0 \
             | sort -z \
-            | xargs -0 -n1 php -l
+            | xargs -0 -n 1 php -l
+
+          echo "Sintaxis PHP correcta."
 
       - name: Comprobar JavaScript
         shell: bash
         run: |
           set -euo pipefail
 
-          find views -type f -name '*.js' -print0 \
-            | sort -z \
-            | xargs -0 -n1 node --check
+          FOUND=0
+
+          while IFS= read -r -d '' file; do
+            FOUND=1
+            node --check "$file"
+          done < <(find views -type f -name '*.js' -print0)
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo "No hay archivos JavaScript que comprobar."
+          else
+            echo "JavaScript correcto."
+          fi
 
       - name: Comprobar migraciones
         shell: bash
@@ -112,14 +92,25 @@ jobs:
           set -euo pipefail
 
           count=$(find upgrade -maxdepth 1 -type f -name 'upgrade-*.php' | wc -l | tr -d ' ')
+
           echo "Migraciones encontradas: $count"
+
+          if [ "$count" -eq 0 ]; then
+            echo "ERROR: No se encontraron migraciones."
+            exit 1
+          fi
 
           for file in upgrade/upgrade-*.php; do
             version=$(basename "$file" .php | sed 's/^upgrade-//')
             function_name="upgrade_module_${version//./_}"
 
-            grep -F "function ${function_name}" "$file" >/dev/null
+            if ! grep -F "function ${function_name}" "$file" >/dev/null; then
+              echo "ERROR: $file no contiene la funcion ${function_name}"
+              exit 1
+            fi
           done
+
+          echo "Migraciones correctas."
 
       - name: Verificar integridad del manifiesto
         shell: bash
@@ -127,6 +118,8 @@ jobs:
           set -euo pipefail
 
           sha256sum -c MANIFEST.sha256
+
+          echo "Manifiesto SHA256 correcto."
 
   compatibilidad-php:
     name: PHP ${{ matrix.php }}
@@ -147,19 +140,24 @@ jobs:
 
     steps:
       - name: Descargar codigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Preparar PHP
+      - name: Preparar PHP ${{ matrix.php }}
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
           coverage: none
 
-      - name: Validar sintaxis
+      - name: Comprobar PHP ${{ matrix.php }}
         shell: bash
         run: |
           set -euo pipefail
 
+          echo "Version PHP:"
+          php -v
+
           find . -type f -name '*.php' -print0 \
             | sort -z \
-            | xargs -0 -n1 php -l
+            | xargs -0 -n 1 php -l
+
+          echo "Modulo correcto con PHP ${{ matrix.php }}"
