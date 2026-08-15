@@ -270,6 +270,7 @@ jobs:
           $address->address1 = 'Calle Prueba 1';
           $address->postcode = '28001';
           $address->city = 'Madrid';
+          $address->dni = '12345678Z';
           fs_assert((bool) $address->add(), 'Se crea una direccion real de pruebas');
 
           $idCategory = (int) Configuration::get('PS_HOME_CATEGORY');
