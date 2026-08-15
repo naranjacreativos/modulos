@@ -1,4 +1,5 @@
 name: Gestion de muestras - Pruebas funcionales
+# Diagnostico V6: historico de pedido y hooks
 
 on:
   workflow_dispatch:
@@ -203,6 +204,26 @@ jobs:
           {
               $row = Db::getInstance()->getRow($sql);
               return is_array($row) ? $row : [];
+          }
+
+          function fs_rows(string $sql): array
+          {
+              $rows = Db::getInstance()->executeS($sql);
+              return is_array($rows) ? $rows : [];
+          }
+
+          function fs_dump_rows(string $label, array $rows): void
+          {
+              echo "\n--- {$label} (" . count($rows) . ") ---\n";
+              if ($rows === []) {
+                  echo "(sin filas)\n";
+                  return;
+              }
+
+              foreach ($rows as $index => $row) {
+                  $json = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                  echo '[' . ($index + 1) . '] ' . ($json !== false ? $json : '(json no disponible)') . "\n";
+              }
           }
 
           // Arrancamos el kernel Symfony real de PrestaShop.
@@ -489,12 +510,154 @@ jobs:
           $order = new Order($idOrder);
           fs_assert(Validate::isLoadedObject($order), 'El pedido puede cargarse desde PrestaShop');
 
-          $sampleHistory = fs_row(
+          $sampleHistoryRows = fs_rows(
               'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_order`'
               . ' WHERE id_order=' . $idOrder
               . ' ORDER BY id_fabricssamples_order ASC'
           );
-          fs_assert($sampleHistory !== [], 'El modulo crea el historico de la muestra del pedido');
+
+          if ($sampleHistoryRows === []) {
+              echo "\n============================================================\n";
+              echo "DIAGNOSTICO V6: EL HISTORICO NO SE CREO AUTOMATICAMENTE\n";
+              echo "============================================================\n";
+              echo 'PrestaShop: ' . _PS_VERSION_ . "\n";
+              echo 'Modulo: fabricssamples ' . (string) ($module->version ?? '') . "\n";
+              echo 'id_module=' . (int) $module->id . "\n";
+              echo 'id_shop=' . $idShop . "\n";
+              echo 'id_cart=' . (int) $cart->id . "\n";
+              echo 'id_order=' . $idOrder . "\n";
+              echo 'id_product=' . (int) $product->id . "\n";
+              echo 'id_customization=' . $idCustomization . "\n";
+
+              $hookNames = ['actionValidateOrder', 'actionObjectOrderDetailAddAfter'];
+              foreach ($hookNames as $hookName) {
+                  try {
+                      echo 'isRegisteredInHook(' . $hookName . '): ' . ($module->isRegisteredInHook($hookName) ? 'SI' : 'NO') . "\n";
+                  } catch (Throwable $exception) {
+                      echo 'isRegisteredInHook(' . $hookName . ') ERROR: ' . $exception->getMessage() . "\n";
+                  }
+              }
+
+              fs_dump_rows(
+                  'Registro SQL de hooks criticos',
+                  fs_rows(
+                      'SELECT h.id_hook,h.name,hm.id_module,hm.id_shop,hm.position'
+                      . ' FROM `' . _DB_PREFIX_ . 'hook` h'
+                      . ' LEFT JOIN `' . _DB_PREFIX_ . 'hook_module` hm'
+                      . ' ON hm.id_hook=h.id_hook AND hm.id_module=' . (int) $module->id
+                      . " WHERE h.name IN ('actionValidateOrder','actionObjectOrderDetailAddAfter')"
+                      . ' ORDER BY h.name ASC,hm.id_shop ASC'
+                  )
+              );
+
+              fs_dump_rows(
+                  'fabricssamples_cart del carrito del pedido',
+                  fs_rows(
+                      'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_cart`'
+                      . ' WHERE id_cart=' . (int) $cart->id
+                      . ' ORDER BY id_fabricssamples_cart ASC'
+                  )
+              );
+
+              fs_dump_rows(
+                  'cart_product del carrito del pedido',
+                  fs_rows(
+                      'SELECT id_cart,id_product,id_product_attribute,id_customization,quantity,date_add'
+                      . ' FROM `' . _DB_PREFIX_ . 'cart_product`'
+                      . ' WHERE id_cart=' . (int) $cart->id
+                      . ' ORDER BY id_product ASC,id_product_attribute ASC,id_customization ASC'
+                  )
+              );
+
+              fs_dump_rows(
+                  'customization relacionada con la muestra',
+                  fs_rows(
+                      'SELECT id_customization,id_product,id_product_attribute,id_cart,quantity,quantity_refunded,quantity_returned,in_cart'
+                      . ' FROM `' . _DB_PREFIX_ . 'customization`'
+                      . ' WHERE id_cart=' . (int) $cart->id
+                      . ' OR id_customization=' . $idCustomization
+                      . ' ORDER BY id_customization ASC'
+                  )
+              );
+
+              fs_dump_rows(
+                  'order_detail creado por PrestaShop',
+                  fs_rows(
+                      'SELECT id_order_detail,id_order,product_id,product_attribute_id,id_customization,product_name,product_reference,'
+                      . ' product_quantity,unit_price_tax_excl,unit_price_tax_incl,total_price_tax_excl,total_price_tax_incl'
+                      . ' FROM `' . _DB_PREFIX_ . 'order_detail`'
+                      . ' WHERE id_order=' . $idOrder
+                      . ' ORDER BY id_order_detail ASC'
+                  )
+              );
+
+              fs_dump_rows(
+                  'fabricssamples_order antes de reparar',
+                  fs_rows(
+                      'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_order`'
+                      . ' WHERE id_order=' . $idOrder
+                      . ' ORDER BY id_fabricssamples_order ASC'
+                  )
+              );
+
+              fs_dump_rows(
+                  'Logs fabricssamples antes de reparar',
+                  fs_rows(
+                      "SELECT id_log,severity,message,object_type,object_id,date_add"
+                      . " FROM `" . _DB_PREFIX_ . "log`"
+                      . " WHERE message LIKE '%fabricssamples%'"
+                      . ' ORDER BY id_log DESC LIMIT 50'
+                  )
+              );
+
+              echo "\n--- Intentando repairOrderHistory() ---\n";
+              $repairException = null;
+              $repairResult = [];
+              try {
+                  $repairResult = $module->repairOrderHistory($idOrder);
+                  echo 'repairOrderHistory devolvio ' . count($repairResult) . " fila(s).\n";
+                  fs_dump_rows('Resultado devuelto por repairOrderHistory', $repairResult);
+              } catch (Throwable $exception) {
+                  $repairException = $exception;
+                  echo 'repairOrderHistory lanzo ' . get_class($exception) . ': ' . $exception->getMessage() . "\n";
+                  echo $exception->getTraceAsString() . "\n";
+              }
+
+              $historyAfterRepair = fs_rows(
+                  'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_order`'
+                  . ' WHERE id_order=' . $idOrder
+                  . ' ORDER BY id_fabricssamples_order ASC'
+              );
+              fs_dump_rows('fabricssamples_order despues de repairOrderHistory', $historyAfterRepair);
+
+              fs_dump_rows(
+                  'Logs fabricssamples despues de reparar',
+                  fs_rows(
+                      "SELECT id_log,severity,message,object_type,object_id,date_add"
+                      . " FROM `" . _DB_PREFIX_ . "log`"
+                      . " WHERE message LIKE '%fabricssamples%'"
+                      . ' ORDER BY id_log DESC LIMIT 50'
+                  )
+              );
+
+              echo 'Db::getMsgError(): ' . (string) Db::getInstance()->getMsgError() . "\n";
+
+              if ($historyAfterRepair !== []) {
+                  echo "DIAGNOSTICO: repairOrderHistory SI reconstruye el historico.\n";
+                  echo "Esto apunta a que el historico no se genero durante los hooks normales del pedido, pero la recuperacion posterior funciona.\n";
+              } elseif ($repairException !== null) {
+                  echo "DIAGNOSTICO: repairOrderHistory tambien falla con excepcion.\n";
+              } else {
+                  echo "DIAGNOSTICO: repairOrderHistory no pudo reconstruir el historico y no lanzo excepcion.\n";
+                  echo "Hay que revisar el enlace entre fabricssamples_cart, customization y order_detail.\n";
+              }
+
+              echo "============================================================\n";
+              fs_fail('El historico de la muestra no se creo automaticamente; diagnostico V6 generado');
+          }
+
+          $sampleHistory = $sampleHistoryRows[0];
+          fs_assert(true, 'El modulo crea el historico de la muestra del pedido');
           fs_assert((int) ($sampleHistory['quantity'] ?? 0) === 1, 'El historico conserva la cantidad correcta');
           fs_assert((int) ($sampleHistory['id_order_detail'] ?? 0) > 0, 'El historico queda enlazado al detalle nativo del pedido');
 
