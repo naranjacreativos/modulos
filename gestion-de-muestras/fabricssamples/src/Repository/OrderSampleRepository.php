@@ -508,7 +508,7 @@ final class OrderSampleRepository
 
     public function insert(array $data): bool
     {
-        return \Db::getInstance()->insert('fabricssamples_order', $data, true);
+        return \Db::getInstance()->insert('fabricssamples_order', $data, false);
     }
 
     public function updateById(int $idRow, array $data): bool

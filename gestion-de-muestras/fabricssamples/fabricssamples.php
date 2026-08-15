@@ -50,7 +50,7 @@ use NaranjaCreativos\FabricSamples\Service\StockLifecycleService;
 
 class Fabricssamples extends Module
 {
-    public const VERSION = '2.15.20';
+    public const VERSION = '2.15.21';
     public const CFG_PREFIX = ModuleConfiguration::PREFIX;
 
     private ?ModuleConfiguration $moduleConfiguration = null;

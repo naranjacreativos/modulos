@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.15.21 - Corrección del histórico de muestras en pedidos
+
+- Corrige la creación del histórico `fabricssamples_order` cuando una muestra no dispone de imagen y `image_snapshot` queda vacío.
+- Evita que `Db::insert()` convierta cadenas vacías en `NULL` al guardar el histórico, respetando las columnas `NOT NULL` con valor vacío permitido.
+- Restaura la sincronización automática del histórico desde `actionObjectOrderDetailAddAfter` y `actionValidateOrder`, así como la reparación mediante `repairOrderHistory()`.
+- La corrección se aplica tanto a PrestaShop 8.2 como a PrestaShop 9.1 sin modificar la lógica de carrito, límites, stock o cupones.
+
 ## 2.15.20 - Correo profesional de cupones
 
 - Rediseña el correo del cupón con una plantilla responsive compatible con clientes de correo, código destacado, resumen de valor, compra mínima y caducidad.
