@@ -692,6 +692,18 @@ jobs:
 
           echo "\n=== Cancelacion y restauracion de stock ===\n";
 
+          // La cancelacion real ocurre en una peticion distinta al checkout. Durante
+          // validateOrder el modulo ignora deliberadamente hooks de estado cuando el
+          // Context conserva el mismo carrito del pedido, para no reconciliar demasiado
+          // pronto. Simulamos aqui una nueva peticion de Back Office separando el carrito
+          // del checkout antes de cambiar el estado.
+          $context->cart = new Cart();
+          $context->cookie->id_cart = 0;
+          fs_assert(
+              !Validate::isLoadedObject($context->cart) || (int) $context->cart->id !== (int) $order->id_cart,
+              'La cancelacion se ejecuta fuera del contexto del carrito de checkout'
+          );
+
           $cancelStateId = (int) Configuration::get('PS_OS_CANCELED');
           fs_assert($cancelStateId > 0, 'Existe el estado Cancelado');
 
