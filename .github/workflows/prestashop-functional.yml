@@ -339,7 +339,7 @@ jobs:
               . ' FROM `' . _DB_PREFIX_ . 'carrier` c'
               . ' INNER JOIN `' . _DB_PREFIX_ . 'carrier_shop` cs ON cs.id_carrier=c.id_carrier'
               . ' WHERE c.active=1 AND c.deleted=0 AND cs.id_shop=' . $idShop
-              . ' ORDER BY c.position ASC,c.id_carrier ASC LIMIT 1'
+              . ' ORDER BY c.position ASC,c.id_carrier ASC'
           );
           fs_assert($idCarrier > 0, 'Existe un transportista activo');
 
@@ -461,7 +461,7 @@ jobs:
           $sampleHistory = fs_row(
               'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_order`'
               . ' WHERE id_order=' . $idOrder
-              . ' ORDER BY id_fabricssamples_order ASC LIMIT 1'
+              . ' ORDER BY id_fabricssamples_order ASC'
           );
           fs_assert($sampleHistory !== [], 'El modulo crea el historico de la muestra del pedido');
           fs_assert((int) ($sampleHistory['quantity'] ?? 0) === 1, 'El historico conserva la cantidad correcta');
@@ -478,7 +478,7 @@ jobs:
           $coupon = fs_row(
               'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_coupon`'
               . ' WHERE id_order=' . $idOrder
-              . ' LIMIT 1'
+             
           );
           fs_assert($coupon !== [], 'El pedido genera un cupon de muestras');
           fs_assert((int) ($coupon['id_cart_rule'] ?? 0) > 0, 'El cupon queda enlazado a una regla de carrito nativa');
@@ -525,7 +525,7 @@ jobs:
           $couponAfterCancel = fs_row(
               'SELECT * FROM `' . _DB_PREFIX_ . 'fabricssamples_coupon`'
               . ' WHERE id_order=' . $idOrder
-              . ' LIMIT 1'
+             
           );
           fs_assert((string) ($couponAfterCancel['state'] ?? '') === 'cancelled', 'El cupon pasa a estado cancelado');
 
