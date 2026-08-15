@@ -6,7 +6,7 @@ Creado por Naranja Creativos · https://www.naranjacreativos.es
 
 ## Versión
 
-Versión 2.15.20 del módulo Gestión de muestras para PrestaShop 8.1, 8.2 y 9.1.
+Versión 2.15.21 del módulo Gestión de muestras para PrestaShop 8.1, 8.2 y 9.1.
 
 ## Validación
 

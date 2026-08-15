@@ -12,7 +12,7 @@ final class ModuleConfiguration
     public static function defaults(): array
     {
         return [
-            'SCHEMA_VERSION' => '2.15.20',
+            'SCHEMA_VERSION' => '2.15.21',
             'DEFAULT_PRICE' => '2.50',
             'DEFAULT_SIZE' => 'Muestra aproximada de 10 × 10 cm',
             'INFO_TEXT' => 'El color puede variar según la pantalla y la posición del estampado puede variar.',
