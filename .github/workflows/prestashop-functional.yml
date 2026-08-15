@@ -205,7 +205,28 @@ jobs:
               return is_array($row) ? $row : [];
           }
 
+          // Arrancamos el kernel Symfony real de PrestaShop.
+          // El script se ejecuta por CLI, fuera de bin/console; sin este paso,
+          // Cart::getOrderTotal() y PaymentModule::validateOrder() no pueden
+          // localizar el contenedor de servicios en PrestaShop 8/9.
+          if (!class_exists('AppKernel', false)) {
+              require_once '/var/www/html/app/AppKernel.php';
+          }
+
+          $kernel = new AppKernel('prod', false);
+          $kernel->boot();
+
+          if (class_exists('\\PrestaShop\\PrestaShop\\Adapter\\SymfonyContainer')) {
+              \PrestaShop\PrestaShop\Adapter\SymfonyContainer::resetStaticCache();
+          }
+
           $context = Context::getContext();
+          $context->container = $kernel->getContainer();
+          fs_assert(
+              $context->container instanceof \Symfony\Component\DependencyInjection\ContainerInterface,
+              'El contenedor Symfony de PrestaShop esta inicializado'
+          );
+
           $idShop = (int) Configuration::get('PS_SHOP_DEFAULT');
           $idLang = (int) Configuration::get('PS_LANG_DEFAULT');
           $idCurrency = (int) Configuration::get('PS_CURRENCY_DEFAULT');
