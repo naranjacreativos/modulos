@@ -206,14 +206,24 @@ jobs:
           }
 
           // Arrancamos el kernel Symfony real de PrestaShop.
-          // El script se ejecuta por CLI, fuera de bin/console; sin este paso,
-          // Cart::getOrderTotal() y PaymentModule::validateOrder() no pueden
-          // localizar el contenedor de servicios en PrestaShop 8/9.
+          // En PrestaShop 8 AppKernel es concreto; en PrestaShop 9 AppKernel
+          // es abstracto y hay que usar FrontKernel. Elegimos automaticamente
+          // el kernel correcto para que la misma prueba funcione en ambas ramas.
           if (!class_exists('AppKernel', false)) {
               require_once '/var/www/html/app/AppKernel.php';
           }
 
-          $kernel = new AppKernel('prod', false);
+          $kernelClass = 'AppKernel';
+          $appKernelReflection = new ReflectionClass($kernelClass);
+
+          if ($appKernelReflection->isAbstract()) {
+              if (!class_exists('FrontKernel', false)) {
+                  require_once '/var/www/html/app/FrontKernel.php';
+              }
+              $kernelClass = 'FrontKernel';
+          }
+
+          $kernel = new $kernelClass('prod', false);
           $kernel->boot();
 
           if (class_exists('\\PrestaShop\\PrestaShop\\Adapter\\SymfonyContainer')) {
@@ -324,7 +334,7 @@ jobs:
               $product->addToCategories([$idCategory]);
           }
 
-          StockAvailable::setQuantity((int) $product->id, 0, 100, $idShop);
+          StockAvailable::setQuantity((int) $product->id, 0, 100, $idShop, false);
           fs_assert(
               (int) StockAvailable::getQuantityAvailableByProduct((int) $product->id, 0, $idShop) === 100,
               'El producto empieza con stock nativo 100'
